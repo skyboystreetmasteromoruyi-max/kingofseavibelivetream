@@ -1,0 +1,219 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Agora Quick Test Client</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 16px; }
+    #controls { margin-bottom: 12px; }
+    video { width: 320px; height: 240px; background: #000; margin: 4px; }
+    #remote-list { display:flex; flex-wrap:wrap; }
+  </style>
+  <!-- Agora Web SDK (v4.x) CDN -->
+  <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
+</head>
+<body>
+  <h3>Agora Demo Client</h3>
+
+  <div id="controls">
+    <label>Token server URL:
+      <input id="tokenServer" style="width:420px"
+        value="https://<NGROK_HOST_OR_YOUR_DOMAIN>/api/agora/token" />
+    </label>
+    <br/>
+    <label>App ID:
+      <input id="appId" value="YOUR_APP_ID_HERE" />
+    </label>
+    <br/>
+    <label>Channel:
+      <input id="channel" value="liveRoom" />
+    </label>
+    <label>UID:
+      <input id="uid" value="0" />
+    </label>
+    <label>Role:
+      <select id="role"><option value="publisher">publisher</option><option value="audience">audience</option></select>
+    </label>
+    <br/>
+    <button id="joinBtn">Join</button>
+    <button id="leaveBtn" disabled>Leave</button>
+    <button id="publishBtn" disabled>Publish (camera+mic)</button>
+    <button id="unpublishBtn" disabled>Unpublish</button>
+  </div>
+
+  <div>
+    <h4>Local</h4>
+    <div id="local-player"></div>
+  </div>
+
+  <div>
+    <h4>Remote</h4>
+    <div id="remote-list"></div>
+  </div>
+
+<script>
+(async function () {
+  const joinBtn = document.getElementById('joinBtn');
+  const leaveBtn = document.getElementById('leaveBtn');
+  const publishBtn = document.getElementById('publishBtn');
+  const unpublishBtn = document.getElementById('unpublishBtn');
+
+  let client, localAudioTrack, localVideoTrack, joinedUid;
+
+  // Helper: fetch token from token server
+  async function fetchToken(channel, uid, role='audience') {
+    const base = document.getElementById('tokenServer').value.trim();
+    // The token endpoint expects query params: channel, uid (optional), role (publisher|audience)
+    const url = `${base}?channel=${encodeURIComponent(channel)}&uid=${encodeURIComponent(uid)}&role=${encodeURIComponent(role)}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Token fetch failed: ${res.status} ${txt}`);
+    }
+    const json = await res.json();
+    if (json.token) return json.token;
+    throw new Error('Token server returned no token');
+  }
+
+  // Create Agora client
+  function makeClient() {
+    // mode: "rtc" general; codec: "vp8" or "h264"
+    const c = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+    // token expiry events: renew when advised
+    c.on("token-privilege-will-expire", async () => {
+      try {
+        const newToken = await fetchToken(getChannel(), joinedUid, getRole());
+        await c.renewToken(newToken);
+        console.log("Token renewed (will-expire).");
+      } catch (e) { console.warn("Failed to renew token (will-expire):", e); }
+    });
+    c.on("token-privilege-did-expire", async () => {
+      try {
+        const newToken = await fetchToken(getChannel(), joinedUid, getRole());
+        await c.renewToken(newToken);
+        console.log("Token renewed (did-expire).");
+      } catch (e) { console.error("Failed to renew token (did-expire):", e); }
+    });
+    return c;
+  }
+
+  // Subscribe to remote users
+  function setupRemoteHandlers(c) {
+    c.on("user-published", async (user, mediaType) => {
+      await c.subscribe(user, mediaType);
+      if (mediaType === 'video') {
+        const remotePlayer = document.createElement('div');
+        remotePlayer.id = `player-${user.uid}`;
+        remotePlayer.innerHTML = `<p>Remote ${user.uid}</p><video id="video-${user.uid}" autoplay playsinline></video>`;
+        document.getElementById('remote-list').appendChild(remotePlayer);
+        user.videoTrack.play(document.getElementById(`video-${user.uid}`));
+      }
+      if (mediaType === 'audio') {
+        user.audioTrack.play(); // plays to default audio output
+      }
+    });
+
+    c.on("user-unpublished", (user) => {
+      const el = document.getElementById(`player-${user.uid}`);
+      if (el) el.remove();
+    });
+
+    c.on("user-left", (user) => {
+      const el = document.getElementById(`player-${user.uid}`);
+      if (el) el.remove();
+    });
+  }
+
+  function getChannel() { return document.getElementById('channel').value.trim(); }
+  function getUid() { return document.getElementById('uid').value.trim() || 0; }
+  function getAppId() { return document.getElementById('appId').value.trim(); }
+  function getRole() { return document.getElementById('role').value; }
+
+  // Join flow
+  joinBtn.addEventListener('click', async () => {
+    joinBtn.disabled = true;
+    try {
+      client = makeClient();
+      setupRemoteHandlers(client);
+
+      const channel = getChannel();
+      const uid = Number(getUid()) || 0;
+      const appId = getAppId();
+      const role = getRole();
+
+      const token = await fetchToken(channel, uid, role);
+      // join(appId, channel, token, uid) returns the assigned uid
+      joinedUid = await client.join(appId, channel, token, uid);
+      console.log('Joined channel', channel, 'as uid', joinedUid);
+
+      leaveBtn.disabled = false;
+      publishBtn.disabled = (role !== 'publisher'); // only enable publish for publisher
+      unpublishBtn.disabled = true;
+    } catch (err) {
+      alert('Join failed: ' + err.message);
+      console.error(err);
+      joinBtn.disabled = false;
+    }
+  });
+
+  // Leave
+  leaveBtn.addEventListener('click', async () => {
+    try {
+      if (localAudioTrack) { localAudioTrack.close(); localAudioTrack = null; }
+      if (localVideoTrack) { localVideoTrack.close(); localVideoTrack = null; }
+      if (client) await client.leave();
+      document.getElementById('local-player').innerHTML = '';
+      document.getElementById('remote-list').innerHTML = '';
+      joinBtn.disabled = false;
+      leaveBtn.disabled = true;
+      publishBtn.disabled = true;
+      unpublishBtn.disabled = true;
+      console.log('Left channel');
+    } catch (e) {
+      console.error('Leave error', e);
+    }
+  });
+
+  // Publish local camera+mic
+  publishBtn.addEventListener('click', async () => {
+    publishBtn.disabled = true;
+    try {
+      localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      localVideoTrack = await AgoraRTC.createCameraVideoTrack();
+      // play local preview
+      const lp = document.createElement('div');
+      lp.id = 'local-preview';
+      lp.innerHTML = `<p>Local ${joinedUid}</p><div id="local-video-container"></div>`;
+      document.getElementById('local-player').innerHTML = '';
+      document.getElementById('local-player').appendChild(lp);
+      localVideoTrack.play(document.getElementById('local-video-container'));
+
+      await client.publish([localAudioTrack, localVideoTrack]);
+      console.log('Published local tracks');
+      unpublishBtn.disabled = false;
+    } catch (e) {
+      console.error('Publish error', e);
+      alert('Publish failed: ' + e.message);
+      publishBtn.disabled = false;
+    }
+  });
+
+  // Unpublish
+  unpublishBtn.addEventListener('click', async () => {
+    try {
+      await client.unpublish();
+      if (localAudioTrack) { localAudioTrack.close(); localAudioTrack = null; }
+      if (localVideoTrack) { localVideoTrack.close(); localVideoTrack = null; }
+      document.getElementById('local-player').innerHTML = '';
+      publishBtn.disabled = false;
+      unpublishBtn.disabled = true;
+      console.log('Unpublished');
+    } catch (e) {
+      console.error('Unpublish error', e);
+    }
+  });
+
+})();
+</script>
+</body>
+</html>

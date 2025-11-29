@@ -1,4 +1,4 @@
-<html><head><meta charset="utf-8"><title>Agora Live — Kingofseavibe</title>
+html><head><meta charset="utf-8"><title>Agora Live — Kingofseavibe</title>
 <style>body{font-family:Arial;margin:20px}#local,#remote{border:1px solid #ccc;width:48%;height:360px;display:inline-block;vertical-align:top;background:#000;color:#fff}button{padding:8px 12px;margin-right:6px}</style>
 </head><body>
 <h2 style="text-align:center">Agora Live — Kingofseavibe</h2>

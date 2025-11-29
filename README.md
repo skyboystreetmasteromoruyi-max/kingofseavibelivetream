@@ -1,4 +1,4 @@
-<title>Agora Live — Kingofseavibe</title> <style>body{font-family:Arial;margin:20px}#local,#remote{border:1px solid #ccc;width:48%;height:360px;display:inline-block;vertical-align:top;background:#000;color:#fff}button{padding:8px 12px;margin-right:6px}</style>
+jva<title>Agora Live — Kingofseavibe</title> <style>body{font-family:Arial;margin:20px}#local,#remote{border:1px solid #ccc;width:48%;height:360px;display:inline-block;vertical-align:top;background:#000;color:#fff}button{padding:8px 12px;margin-right:6px}</style>
 Agora Live — Kingofseavibe
 Channel: Role: HostAudience JoinLeave
 Local (host)
